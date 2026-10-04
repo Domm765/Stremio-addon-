@@ -10,9 +10,15 @@ if (!KEY) {
 
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'catalogs.json'), 'utf8'));
 
+// Extra catalogue files (catalogs-2.json, catalogs-3.json, ...) are merged in automatically
+for (const f of fs.readdirSync(__dirname).filter(n => /^catalogs-.+\.json$/.test(n)).sort()) {
+  const extra = JSON.parse(fs.readFileSync(path.join(__dirname, f), 'utf8'));
+  cfg.catalogs.push(...(extra.catalogs || []));
+}
+
 const manifest = {
   id: 'community.my.catalogues',
-  version: '1.4.0',
+  version: '1.5.0',
   name: 'My Catalogues',
   description: 'Streaming, digital releases and comedy catalogues',
   resources: ['catalog'],
