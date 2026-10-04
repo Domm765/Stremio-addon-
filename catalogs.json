@@ -1,0 +1,31 @@
+{
+"region": "US",
+"providers": [8,9,337,1899,384,15,350,531,386],
+"catalogs": [
+{"id":"streaming-new-movies","type":"movie","name":"New on Streaming - Movies","endpoint":"movie","query":{"with_watch_providers":"{{providers}}","watch_region":"{{region}}","with_watch_monetization_types":"flatrate","primary_release_date.gte":"{{daysAgo:60}}","primary_release_date.lte":"{{today}}","sort_by":"primary_release_date.desc"}},
+{"id":"streaming-new-series","type":"series","name":"New on Streaming - Series","endpoint":"tv","query":{"with_watch_providers":"{{providers}}","watch_region":"{{region}}","with_watch_monetization_types":"flatrate","first_air_date.gte":"{{daysAgo:90}}","first_air_date.lte":"{{today}}","sort_by":"first_air_date.desc"}},
+{"id":"digital-releases","type":"movie","name":"Recent Digital Releases","endpoint":"movie","query":{"region":"{{region}}","with_release_type":"4","release_date.gte":"{{daysAgo:45}}","release_date.lte":"{{today}}","sort_by":"primary_release_date.desc"}},
+{"id":"standup-all-time","type":"movie","name":"Stand-Up Comedy - All Time","endpoint":"movie","keywordNames":["stand-up comedy"],"query":{"sort_by":"vote_average.desc","vote_count.gte":"150"}},
+{"id":"sitcoms-all-time","type":"series","name":"Sitcoms - All Time","endpoint":"tv","keywordNames":["sitcom"],"query":{"with_genres":"35","sort_by":"vote_average.desc","vote_count.gte":"300"}},
+{"id":"comedy-new-movies","type":"movie","name":"Comedy - Recently Added","endpoint":"movie","query":{"with_genres":"35","primary_release_date.gte":"{{daysAgo:90}}","primary_release_date.lte":"{{today}}","sort_by":"primary_release_date.desc"}},
+{"id":"comedy-new-series","type":"series","name":"Comedy - Recently Added","endpoint":"tv","query":{"with_genres":"35","first_air_date.gte":"{{daysAgo:120}}","first_air_date.lte":"{{today}}","sort_by":"first_air_date.desc"}},
+{"id":"hidden-gems","type":"movie","name":"Hidden Gems","endpoint":"movie","query":{"sort_by":"vote_average.desc","vote_average.gte":"7.4","vote_count.gte":"300","vote_count.lte":"2500"}},
+{"id":"twist-endings","type":"movie","name":"Twist Endings","endpoint":"movie","keywordNames":["twist ending"],"query":{"sort_by":"vote_average.desc","vote_count.gte":"500"}},
+{"id":"binge-miniseries","type":"series","name":"Binge-Worthy Miniseries","endpoint":"tv","query":{"with_type":"2","sort_by":"vote_average.desc","vote_count.gte":"300"}},
+{"id":"anime-trending","type":"series","name":"Trending Anime","endpoint":"tv","query":{"with_genres":"16","with_original_language":"ja","first_air_date.gte":"{{daysAgo:730}}","sort_by":"popularity.desc"}},
+{"id":"cult-classics","type":"movie","name":"Cult Classics","endpoint":"movie","keywordNames":["cult film"],"query":{"sort_by":"vote_average.desc","vote_count.gte":"500"}},
+{"id":"true-crime","type":"series","name":"True Crime Series","endpoint":"tv","keywordNames":["true crime"],"query":{"sort_by":"popularity.desc","vote_count.gte":"50"}},
+{"id":"feel-good","type":"movie","name":"Feel-Good Movies","endpoint":"movie","keywordNames":["feel good"],"query":{"sort_by":"vote_average.desc","vote_count.gte":"500"}},
+{"id":"non-english-series","type":"series","name":"Popular Non-English Series","endpoint":"tv","query":{"with_original_language":"ko|es|fr|de|hi","first_air_date.gte":"{{daysAgo:365}}","sort_by":"popularity.desc","vote_count.gte":"100"}},
+{"id":"animated-new","type":"movie","name":"New Animated Movies","endpoint":"movie","query":{"with_genres":"16","primary_release_date.gte":"{{daysAgo:365}}","primary_release_date.lte":"{{today}}","sort_by":"popularity.desc"}},
+{"id":"horror-top","type":"movie","name":"Top Horror","endpoint":"movie","query":{"with_genres":"27","sort_by":"vote_average.desc","vote_count.gte":"1000"}},
+{"id":"rom-coms","type":"movie","name":"Rom-Coms","endpoint":"movie","query":{"with_genres":"10749,35","sort_by":"vote_average.desc","vote_count.gte":"800"}},
+{"id":"documentaries","type":"movie","name":"Top Documentaries","endpoint":"movie","query":{"with_genres":"99","sort_by":"vote_average.desc","vote_count.gte":"300"}},
+{"id":"classics","type":"movie","name":"Timeless Classics","endpoint":"movie","query":{"primary_release_date.lte":"1980-01-01","sort_by":"vote_average.desc","vote_count.gte":"1500"}},
+{"id":"action-new","type":"movie","name":"New Action","endpoint":"movie","query":{"with_genres":"28","primary_release_date.gte":"{{daysAgo:120}}","primary_release_date.lte":"{{today}}","sort_by":"popularity.desc"}},
+{"id":"scifi-fantasy-series","type":"series","name":"Sci-Fi & Fantasy Series","endpoint":"tv","query":{"with_genres":"10765","first_air_date.gte":"{{daysAgo:730}}","sort_by":"popularity.desc"}},
+{"id":"crime-dramas","type":"series","name":"Crime Dramas","endpoint":"tv","query":{"with_genres":"80,18","sort_by":"vote_average.desc","vote_count.gte":"500"}},
+{"id":"kids-family","type":"series","name":"Kids & Family Series","endpoint":"tv","query":{"with_genres":"10762","first_air_date.gte":"{{daysAgo:730}}","sort_by":"popularity.desc"}},
+{"id":"reality","type":"series","name":"Reality & Competition","endpoint":"tv","query":{"with_genres":"10764","first_air_date.gte":"{{daysAgo:365}}","sort_by":"popularity.desc"}}
+]
+}
