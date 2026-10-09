@@ -18,7 +18,7 @@ for (const f of fs.readdirSync(__dirname).filter(n => /^catalogs-.+\.json$/.test
 
 const manifest = {
   id: 'community.my.catalogues',
-  version: '1.5.0',
+  version: '1.7.0',
   name: 'My Catalogues',
   description: 'Streaming, digital releases and comedy catalogues',
   resources: ['catalog'],
@@ -53,6 +53,7 @@ function fill(value) {
   return String(value)
     .replace('{{today}}', dateStr(0))
     .replace(/\{\{daysAgo:(\d+)\}\}/g, (_, n) => dateStr(Number(n)))
+    .replace(/\{\{daysAhead:(\d+)\}\}/g, (_, n) => dateStr(-Number(n)))
     .replace('{{region}}', cfg.region)
     .replace('{{providers}}', cfg.providers.join('|'));
 }
@@ -85,18 +86,77 @@ async function imdbId(endpoint, tmdbId) {
   return id;
 }
 
+// ---------- Curated lists: "Title|year" entries are looked up on TMDB ----------
+const titleCache = new Map();
+async function resolveTitle(cat, spec) {
+  const key = `${cat.endpoint}:${spec}`;
+  if (titleCache.has(key)) return titleCache.get(key);
+  const [title, year] = spec.split('|');
+  const params = { query: title, language: 'en-US', include_adult: 'false' };
+  if (year) params[cat.endpoint === 'movie' ? 'year' : 'first_air_date_year'] = year;
+  let hit = null;
+  try {
+    const { results } = await tmdb(`/search/${cat.endpoint}`, params);
+    hit = (results && results[0]) || null;
+  } catch (e) {
+    console.error('Title lookup failed:', spec);
+  }
+  titleCache.set(key, hit);
+  return hit;
+}
+
+// ---------- Franchises: collections are looked up by name, films in release order ----------
+const collectionCache = new Map();
+async function collectionMovies(cat) {
+  if (collectionCache.has(cat.id)) return collectionCache.get(cat.id);
+  const groups = await Promise.all(cat.collectionNames.map(async name => {
+    try {
+      const { results } = await tmdb('/search/collection', { query: name, language: 'en-US' });
+      const hit = results.find(r => r.name.toLowerCase() === name.toLowerCase()) || results[0];
+      if (!hit) return [];
+      const col = await tmdb(`/collection/${hit.id}`, { language: 'en-US' });
+      return (col.parts || [])
+        .slice()
+        .sort((a, b) => (a.release_date || '9999').localeCompare(b.release_date || '9999'));
+    } catch (e) {
+      console.error('Collection lookup failed:', name);
+      return [];
+    }
+  }));
+  const seen = new Set();
+  const all = groups.flat().filter(m => !seen.has(m.id) && seen.add(m.id));
+  collectionCache.set(cat.id, all);
+  return all;
+}
+
 // ---------- Catalog handler ----------
 const pageCache = new Map();
 const TTL = 60 * 60 * 1000;
+const PAGE_SIZE = 20;
 
-async function buildCatalog(cat, page) {
+async function getResults(cat, page) {
+  if (cat.titles) {
+    const slice = cat.titles.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const hits = await Promise.all(slice.map(t => resolveTitle(cat, t)));
+    return hits.filter(Boolean);
+  }
+  if (cat.collectionNames) {
+    const all = await collectionMovies(cat);
+    return all.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  }
   const params = { page, language: 'en-US', include_adult: 'false' };
-  for (const [k, v] of Object.entries(cat.query)) params[k] = fill(v);
+  for (const [k, v] of Object.entries(cat.query || {})) params[k] = fill(v);
   if (cat.keywordNames) {
     const ids = (await Promise.all(cat.keywordNames.map(keywordId))).filter(Boolean);
     if (ids.length) params.with_keywords = ids.join(',');
+    else if (cat.strict) return []; // never show an unfiltered list for a keyword-only row
   }
-  const { results } = await tmdb(`/discover/${cat.endpoint}`, params);
+  const data = await tmdb(cat.path || `/discover/${cat.endpoint}`, params);
+  return data.results || [];
+}
+
+async function buildCatalog(cat, page) {
+  const results = await getResults(cat, page);
   const metas = await Promise.all(
     results.map(async r => {
       const id = await imdbId(cat.endpoint, r.id);
@@ -121,7 +181,7 @@ const builder = new addonBuilder(manifest);
 builder.defineCatalogHandler(async ({ type, id, extra }) => {
   const cat = cfg.catalogs.find(c => c.id === id && c.type === type);
   if (!cat) return { metas: [] };
-  const page = Math.floor(Number((extra && extra.skip) || 0) / 20) + 1;
+  const page = Math.floor(Number((extra && extra.skip) || 0) / PAGE_SIZE) + 1;
   const key = `${id}:${page}`;
   const hit = pageCache.get(key);
   if (hit && Date.now() - hit.t < TTL) return { metas: hit.metas, cacheMaxAge: 3600 };
