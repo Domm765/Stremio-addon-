@@ -1,4 +1,4 @@
-const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
@@ -10,15 +10,30 @@ if (!KEY) {
 
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'catalogs.json'), 'utf8'));
 
-// Extra catalogue files (catalogs-2.json, catalogs-3.json, ...) are merged in automatically
+// Extra catalogue files (catalogs-2.json, catalogs-3.json, ...) are merged in automatically.
+// A broken file is skipped (and named in the log) instead of stopping the whole addon.
 for (const f of fs.readdirSync(__dirname).filter(n => /^catalogs-.+\.json$/.test(n)).sort()) {
-  const extra = JSON.parse(fs.readFileSync(path.join(__dirname, f), 'utf8'));
-  cfg.catalogs.push(...(extra.catalogs || []));
+  try {
+    const extra = JSON.parse(fs.readFileSync(path.join(__dirname, f), 'utf8'));
+    cfg.catalogs.push(...(extra.catalogs || []));
+  } catch (e) {
+    console.error('Skipping ' + f + ': ' + e.message);
+  }
+}
+// drop incomplete entries and repeated ids
+{
+  const seenIds = new Set();
+  cfg.catalogs = cfg.catalogs.filter(c => {
+    const key = c && c.type + ':' + c.id;
+    if (!c || !c.id || !c.type || !c.name || seenIds.has(key)) return false;
+    seenIds.add(key);
+    return true;
+  });
 }
 
 const manifest = {
   id: 'community.my.catalogues',
-  version: '1.8.0',
+  version: '1.9.0',
   name: 'My Catalogues',
   description: 'Streaming, digital releases and comedy catalogues',
   resources: ['catalog'],
@@ -217,23 +232,74 @@ async function buildCatalog(cat, page) {
   return metas.filter(m => m && !seen.has(m.id) && seen.add(m.id));
 }
 
-const builder = new addonBuilder(manifest);
-
-builder.defineCatalogHandler(async ({ type, id, extra }) => {
+async function handleCatalog({ type, id, extra }) {
   const cat = cfg.catalogs.find(c => c.id === id && c.type === type);
   if (!cat) return { metas: [] };
   const page = Math.floor(Number((extra && extra.skip) || 0) / PAGE_SIZE) + 1;
   const key = `${id}:${page}`;
   const hit = pageCache.get(key);
-  if (hit && Date.now() - hit.t < TTL) return { metas: hit.metas, cacheMaxAge: 3600 };
+  if (hit && Date.now() - hit.t < TTL) return { metas: hit.metas };
   try {
     const metas = await buildCatalog(cat, page);
     if (metas.length) pageCache.set(key, { t: Date.now(), metas });
-    return { metas, cacheMaxAge: 3600 };
+    return { metas };
   } catch (e) {
     console.error(e.message);
     return { metas: hit ? hit.metas : [] };
   }
+}
+
+// ---------- Plain web server (Stremio's own library caps the manifest at 8 KB; this has no cap) ----------
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS'
+};
+
+function send(res, status, body, headers) {
+  res.writeHead(status, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, CORS, headers));
+  res.end(typeof body === 'string' ? body : JSON.stringify(body));
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, CORS);
+      return res.end();
+    }
+    const pathname = new URL(req.url, 'http://localhost').pathname;
+
+    if (pathname === '/manifest.json') {
+      return send(res, 200, manifest, { 'Cache-Control': 'max-age=300' });
+    }
+
+    // /catalog/<type>/<id>.json   or   /catalog/<type>/<id>/skip=20.json
+    const m = pathname.match(/^\/catalog\/([^/]+)\/([^/]+?)(?:\/([^/]+))?\.json$/);
+    if (m) {
+      const extra = Object.fromEntries(new URLSearchParams(decodeURIComponent(m[3] || '')));
+      const out = await handleCatalog({ type: decodeURIComponent(m[1]), id: decodeURIComponent(m[2]), extra });
+      return send(res, 200, { metas: out.metas }, { 'Cache-Control': 'max-age=' + (out.metas.length ? 3600 : 60) });
+    }
+
+    if (pathname === '/' || pathname === '/configure') {
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').replace(/[^A-Za-z0-9.:-]/g, '');
+      const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<title>' + manifest.name + '</title></head>' +
+        '<body style="font-family:sans-serif;max-width:480px;margin:40px auto;padding:0 16px">' +
+        '<h1>' + manifest.name + '</h1><p>' + manifest.catalogs.length + ' catalogues</p>' +
+        '<p><a href="stremio://' + host + '/manifest.json" style="display:inline-block;padding:12px 20px;background:#6a4cd1;color:#fff;border-radius:8px;text-decoration:none">Install in Stremio</a></p>' +
+        '<p>Or paste this into Stremio: <code>https://' + host + '/manifest.json</code></p></body></html>';
+      return send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8' });
+    }
+
+    send(res, 404, { err: 'not found' });
+  } catch (e) {
+    console.error(e && e.message);
+    send(res, 500, { err: 'server error' });
+  }
 });
 
-serveHTTP(builder.getInterface(), { port: process.env.PORT || 7000 });
+process.on('unhandledRejection', e => console.error('Unhandled:', e && e.message));
+server.listen(process.env.PORT || 7000, '0.0.0.0', () => {
+  console.log('Addon running with ' + cfg.catalogs.length + ' catalogues');
+});
