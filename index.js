@@ -18,7 +18,7 @@ for (const f of fs.readdirSync(__dirname).filter(n => /^catalogs-.+\.json$/.test
 
 const manifest = {
   id: 'community.my.catalogues',
-  version: '1.7.0',
+  version: '1.8.0',
   name: 'My Catalogues',
   description: 'Streaming, digital releases and comedy catalogues',
   resources: ['catalog'],
@@ -129,6 +129,36 @@ async function collectionMovies(cat) {
   return all;
 }
 
+// ---------- Brand resolver: finds a network / company ID from TMDB itself ----------
+// A catalogue can list "anchor" titles that definitely belong to a brand. The addon reads the
+// anchor's networks (series) or production companies (movies) and keeps the ID whose name matches exactly.
+const brandCache = new Map();
+async function resolveBrandId(spec) {
+  const key = spec.kind + ':' + spec.names.join('|');
+  if (brandCache.has(key)) return brandCache.get(key);
+  const type = spec.kind === 'network' ? 'tv' : 'movie';
+  const field = spec.kind === 'network' ? 'networks' : 'production_companies';
+  const wanted = spec.names.map(n => n.toLowerCase());
+  let found = null;
+  for (const anchor of spec.anchors) {
+    try {
+      const [title, year] = anchor.split('|');
+      const params = { query: title, language: 'en-US', include_adult: 'false' };
+      if (year) params[type === 'movie' ? 'year' : 'first_air_date_year'] = year;
+      const { results } = await tmdb('/search/' + type, params);
+      const hit = results && results[0];
+      if (!hit) continue;
+      const detail = await tmdb('/' + type + '/' + hit.id, { language: 'en-US' });
+      const match = (detail[field] || []).find(x => wanted.includes(String(x.name).toLowerCase()));
+      if (match) { found = match.id; break; }
+    } catch (e) {
+      console.error('Brand lookup failed:', spec.names[0]);
+    }
+  }
+  if (found) brandCache.set(key, found); // failures are not remembered, so they retry next time
+  return found;
+}
+
 // ---------- Catalog handler ----------
 const pageCache = new Map();
 const TTL = 60 * 60 * 1000;
@@ -146,6 +176,16 @@ async function getResults(cat, page) {
   }
   const params = { page, language: 'en-US', include_adult: 'false' };
   for (const [k, v] of Object.entries(cat.query || {})) params[k] = fill(v);
+  if (cat.resolve) {
+    const found = {};
+    for (const spec of cat.resolve) {
+      const id = await resolveBrandId(spec);
+      if (id) (found[spec.param] = found[spec.param] || []).push(id);
+    }
+    // brand could not be identified: show nothing rather than unrelated titles
+    if (!Object.keys(found).length) return [];
+    for (const [p, ids] of Object.entries(found)) params[p] = [params[p], ...ids].filter(Boolean).join('|');
+  }
   if (cat.keywordNames) {
     const ids = (await Promise.all(cat.keywordNames.map(keywordId))).filter(Boolean);
     if (ids.length) params.with_keywords = ids.join(',');
@@ -173,7 +213,8 @@ async function buildCatalog(cat, page) {
       };
     })
   );
-  return metas.filter(Boolean);
+  const seen = new Set();
+  return metas.filter(m => m && !seen.has(m.id) && seen.add(m.id));
 }
 
 const builder = new addonBuilder(manifest);
@@ -187,7 +228,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
   if (hit && Date.now() - hit.t < TTL) return { metas: hit.metas, cacheMaxAge: 3600 };
   try {
     const metas = await buildCatalog(cat, page);
-    pageCache.set(key, { t: Date.now(), metas });
+    if (metas.length) pageCache.set(key, { t: Date.now(), metas });
     return { metas, cacheMaxAge: 3600 };
   } catch (e) {
     console.error(e.message);
